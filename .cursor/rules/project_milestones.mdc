@@ -1,0 +1,26 @@
+---
+description: Tracks Equoria's major development milestones and learnings. Updated after each major implementation or feature completion.
+globs: ["**/*"]
+alwaysApply: true
+---
+
+## 🏁 Project Milestones
+
+This file is intended to capture key implementation checkpoints and architectural shifts in the Equoria project. Cursor should:
+
+- Append a new entry at the end of this file after each major completed feature, architectural refactor, or gameplay system rollout.
+- Include:
+  - Date
+  - Feature/Module name
+  - Description of what was completed
+  - Any notable learnings, blockers, or decisions made
+
+**Example Entry:**
+```
+### [2025-05-21] — Rider-Horse Synergy Heatmap MVP Completed
+- Implemented initial backend and frontend structure for synergy calculation and display.
+- Learned that floating-point trait weighting needed normalization for UI clarity.
+- Refactored heatmap color logic into a shared utility function.
+```
+
+> Keep this file up to date so that future contributors or reviews have a clear sense of project progression.

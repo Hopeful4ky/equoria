@@ -1,0 +1,340 @@
+
+description: Guidelines for implementing secure, efficient, and maintainable authentication in the horse simulation game, covering JWT-based token handling, route protection, login flows, role-based access control, and testing.globs: .js,.test.js,*.sql
+Authentication Best Practices for Horse Simulation Game
+This document outlines best practices for implementing authentication in the horse simulation game, ensuring secure JWT-based authentication, role-based access control (RBAC), and robust testing. It aligns with the Express backend, PostgreSQL database, and Jest tests.
+Library Information
+
+Technologies: JWT (jsonwebtoken), Express, PostgreSQL (pg), bcrypt (bcryptjs)
+Tags: authentication, security, JWT, RBAC, Express
+
+1. Code Organization and Structure
+
+Directory Structure:backend/
+  config/
+    db.js           # PostgreSQL pool configuration
+    schema.sql      # Database schema
+  routes/
+    auth.js         # Authentication routes (login, verify-email)
+    users.js        # User management routes
+    horses.js       # Horse-related routes
+    __tests__/
+      auth.test.js  # Auth route tests
+  utils/
+    middleware.js   # Authentication middleware (JWT, RBAC)
+  index.js          # Express app setup
+
+
+File Naming:
+Use descriptive names: auth.js, middleware.js, auth.test.js.
+Follow camelCase for JavaScript files.
+
+
+Module Organization:
+Keep authentication logic in routes/auth.js and middleware in utils/middleware.js.
+Avoid monolithic files; separate concerns (e.g., token validation vs. user queries).
+
+
+Route Architecture:
+Group routes under /api (e.g., /api/auth, /api/horses).
+Use middleware for protected routes (e.g., /api/breeding for premium users).
+
+
+
+2. Common Patterns and Anti-patterns
+
+Design Patterns:
+Middleware Pattern: Use Express middleware for JWT validation and RBAC.// utils/middleware.js
+const jwt = require('jsonwebtoken');
+const authenticateJWT = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'No token provided' });
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ message: 'Invalid token' });
+    req.user = user;
+    next();
+  });
+};
+module.exports = { authenticateJWT };
+
+
+RBAC Middleware: Restrict routes by role or user type.const restrictTo = (roles) => (req, res, next) => {
+  if (!roles.includes(req.user.role) && !roles.includes(req.user.user_type)) {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  next();
+};
+// Usage in index.js
+app.use('/api/breeding', authenticateJWT, restrictTo(['premium']), breedingRoutes);
+app.use('/api/users', authenticateJWT, restrictTo(['admin']), userRoutes);
+
+
+
+
+Recommended Approaches:
+Login Flow: Implement email/password login with bcrypt hashing and JWT issuance (auth.js).// routes/auth.js
+router.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+  const user = result.rows[0];
+  if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+    return res.status(401).json({ message: 'Invalid credentials' });
+  }
+  if (!user.is_verified) {
+    return res.status(403).json({ message: 'Please verify your email' });
+  }
+  const token = jwt.sign(
+    { id: user.id, username: user.username, role: user.role, user_type: user.user_type },
+    process.env.JWT_SECRET,
+    { expiresIn: '1h' }
+  );
+  res.json({ token, userId: user.id });
+});
+
+
+Email Verification: Require email verification before login (auth.js).router.get('/verify-email/:token', async (req, res) => {
+  const { token } = req.params;
+  if (!token || typeof token !== 'string' || token.trim() === '') {
+    return res.status(404).json({ message: 'Invalid or missing token' });
+  }
+  const result = await db.query('SELECT * FROM users WHERE email_verification_token = $1', [token]);
+  if (result.rows.length === 0) {
+    return res.status(400).json({ message: 'Invalid or expired verification token' });
+  }
+  await db.query('UPDATE users SET is_verified = TRUE, email_verification_token = NULL WHERE id = $1', [
+    result.rows[0].id,
+  ]);
+  res.json({ message: 'Email verified successfully' });
+});
+
+
+Token Storage: Store JWTs in HttpOnly cookies.// index.js
+app.use(cookieParser());
+router.post('/login', async (req, res) => {
+  // ... login logic
+  res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
+  res.json({ userId: user.id });
+});
+
+
+
+
+Anti-patterns:
+Hardcoding Secrets: Never hardcode JWT_SECRET or database credentials.// Bad
+const secret = 'mysecretkey';
+// Good
+const secret = process.env.JWT_SECRET;
+
+
+Exposing Tokens: Avoid storing JWTs in localStorage or URLs.
+Missing Validation: Always validate tokens before database queries.
+Overfetching: Query only necessary user fields (e.g., id, role).
+
+
+Error Handling:
+Use try-catch for database queries and JWT operations.try {
+  await db.query('SELECT 1'); // Test connection
+} catch (err) {
+  console.error('Database error:', err.stack);
+  return res.status(500).json({ message: 'Server error' });
+}
+
+
+Log errors to a central service (e.g., Winston).
+
+
+
+3. Performance Considerations
+
+Optimization:
+Cache user roles in memory (e.g., Redis) to reduce database queries.const redis = require('redis');
+const client = redis.createClient();
+const getUserRole = async (userId) => {
+  const cached = await client.get(`user:${userId}:role`);
+  if (cached) return cached;
+  const result = await db.query('SELECT role FROM users WHERE id = $1', [userId]);
+  const role = result.rows[0].role;
+  await client.setEx(`user:${userId}:role`, 3600, role);
+  return role;
+};
+
+
+Reuse valid JWTs until expiration.
+
+
+Database Queries:
+Index users.email_verification_token and users.email (schema.sql).CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_email_verification_token ON users(email_verification_token);
+
+
+
+
+Bundle Size:
+Use jsonwebtoken and bcryptjs selectively; avoid unused dependencies.
+
+
+
+4. Security Best Practices
+
+Vulnerabilities:
+XSS/CSRF: Use helmet and express-rate-limit (index.js).
+Token Theft: Store JWTs in HttpOnly cookies, not localStorage.
+SQL Injection: Use parameterized queries (db.js).await db.query('SELECT * FROM users WHERE email = $1', [email]);
+
+
+
+
+Validation:
+Validate inputs with express-validator (auth.js).const { body } = require('express-validator');
+router.post(
+  '/login',
+  [
+    body('email').isEmail().normalizeEmail(),
+    body('password').notEmpty(),
+  ],
+  (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  }
+);
+
+
+
+
+Authentication:
+Enforce strong passwords (8+ characters, mixed case, numbers).
+Require email verification (is_verified in users).
+
+
+Data Protection:
+Use HTTPS in production (secure: true for cookies).
+Hash passwords with bcryptjs (10+ salt rounds).const hashedPassword = await bcrypt.hash(password, 10);
+
+
+
+
+
+5. Testing Approaches
+
+Unit Testing:
+Test middleware and auth routes in isolation.// routes/__tests__/auth.test.js
+it('should return 401 for invalid credentials', async () => {
+  const response = await request(app).post('/api/auth/login').send({
+    email: 'test@example.com',
+    password: 'wrong',
+  });
+  expect(response.statusCode).toBe(401);
+  expect(response.body).toHaveProperty('message', 'Invalid credentials');
+});
+
+
+Mock db.query to avoid database dependency.jest.mock('../../config/db', () => ({
+  query: jest.fn().mockResolvedValue({ rows: [] }),
+}));
+
+
+
+
+Integration Testing:
+Test full auth flow (signup, verify, login).it('should verify email and allow login', async () => {
+  const signup = await request(app).post('/api/users').send({
+    username: 'testuser',
+    email: 'test@example.com',
+    password: 'Password123!',
+  });
+  const token = (await db.query('SELECT email_verification_token FROM users WHERE id = $1', [signup.body.userId])).rows[0].email_verification_token;
+  await request(app).get(`/api/auth/verify-email/${token}`);
+  const login = await request(app).post('/api/auth/login').send({
+    email: 'test@example.com',
+    password: 'Password123!',
+  });
+  expect(login.statusCode).toBe(200);
+  expect(login.body).toHaveProperty('token');
+});
+
+
+
+
+Fixing Jest Errors:
+Line 387 (auth.test.js): Fixed message mismatch ("Invalid or expired verification token").
+Line 406 (auth.test.js): Ensure 404 for whitespace tokens by validating early in auth.js.it('should return 404 if token path segment is effectively empty', async () => {
+  const response = await request(app).get('/api/auth/verify-email/   ');
+  expect(response.statusCode).toBe(404);
+  expect(response.body).toHaveProperty('message', 'Invalid or missing token');
+});
+
+
+
+
+Test Setup:
+Clear database before each test (beforeEach in auth.test.js).beforeEach(async () => {
+  await pool.query('BEGIN');
+  await pool.query('DELETE FROM users');
+  await pool.query('COMMIT');
+});
+
+
+
+
+
+6. Common Pitfalls
+
+Frequent Mistakes:
+Missing .env variables (JWT_SECRET, DB_*).
+Not applying schema.sql to the test database.
+Hardcoding tokens or secrets in auth.js.
+
+
+Edge Cases:
+Handle expired JWTs with refresh tokens.router.post('/refresh-token', async (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+  // Validate and issue new JWT
+});
+
+
+Support network failures in db.query.
+
+
+Debugging:
+Log token validation and database errors.console.log(`Token received: "${token}", Length: ${token?.length}`);
+console.error('Database error:', err.stack);
+
+
+Use PostgreSQL logs (psql -U postgres -d equoria).
+
+
+
+7. Tooling and Environment
+
+Tools:
+Postman: Test /api/auth endpoints.
+Jest: Run tests (npx jest).
+pgAdmin: Manage equoria database.
+
+
+Build Configuration:
+Use nodemon for development (nodemon index.js).
+
+
+Linting:
+Use ESLint with eslint-config-airbnb-base.{
+  "extends": "airbnb-base",
+  "env": { "jest": true }
+}
+
+
+
+
+CI/CD:
+Run npx jest in CI pipeline.
+Deploy schema with psql -f schema.sql.
+
+
+
+Additional Best Practices
+
+RBAC: Enforce premium for breeding/store, admin for moderation.
+Rate Limiting: Apply express-rate-limit to /api/auth (index.js).
+Monitoring: Log failed logins and token errors.
+Updates: Keep jsonwebtoken, bcryptjs, and pg updated.
+
+By following these guidelines, you’ll ensure secure, scalable authentication for the horse simulation game, fixing Jest errors and supporting premium features and moderation.

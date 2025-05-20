@@ -1,0 +1,32 @@
+---
+description: Living technical documentation file for Equoria. Updated automatically with function definitions, API schemas, and database changes.
+globs: ["**/*"]
+alwaysApply: true
+---
+
+## 📚 Technical Documentation
+
+This file is maintained as a centralized location for Equoria’s evolving technical references. Cursor should:
+
+- Append new content here when:
+  - A new function, utility, or hook is created
+  - A new Express route is defined
+  - A database schema/table is added or modified
+  - A new file or module contains reusable logic
+
+Each section should include:
+- Function name (with signature if available)
+- Purpose and usage
+- Parameters and return values
+- Related components, files, or tests
+
+**Example Entry:**
+```
+### createFoalProfile(foalData: Object)
+- Creates a new foal profile from provided genetic data and parentage.
+- Params: foalData (includes genotype, traits, and lineage ID)
+- Returns: inserted DB record
+- Used in: /routes/breeding.js
+```
+
+> Use this file to ensure the entire development team has access to up-to-date internal documentation.
